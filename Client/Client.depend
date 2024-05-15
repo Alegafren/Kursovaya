@@ -1,0 +1,9 @@
+# depslib dependency file v1.0
+1715801741 source:d:\ВУЗ\2Курс\Программирование и основы алгоритмизации\Курсач\client\main.cpp
+	<iostream>
+	<ws2tcpip.h>
+	<conio.h>
+	<string>
+	<fstream>
+	<filesystem>
+
