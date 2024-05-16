@@ -6,3 +6,11 @@
 	<fstream>
 	<thread>
 
+1715852952 source:d:\Æåíÿ\c++\kursovaya\server\main.cpp
+	<iostream>
+	<ws2tcpip.h>
+	<conio.h>
+	<vector>
+	<fstream>
+	<thread>
+

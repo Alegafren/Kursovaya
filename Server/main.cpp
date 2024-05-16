@@ -1,5 +1,6 @@
 #include <iostream>
 #include <ws2tcpip.h>
+#include <conio.h>
 #include <vector>
 #include <fstream>
 #include <thread>
@@ -216,6 +217,7 @@ void UserInputListener()
             ofstream clearFile("active_users.txt", ios::trunc);
             clearFile.close();
             WSACleanup();
+            _getch();
             exit(0);
         }
     }
