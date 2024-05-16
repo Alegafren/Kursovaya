@@ -92,28 +92,19 @@ void SendActiveUsersToAllClients()
 
 void ReceiveFileFromClient(SOCKET clientSocket)
 {
-    // Получаем имя файла
     char filename_buf[DEFAULT_BUFLEN];
     int filename_size;
     recv(clientSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0);
     recv(clientSocket, filename_buf, filename_size, 0);
     string filename(filename_buf, filename_size);
-
-    // Получаем размер файла
     long long total_file_size;
     recv(clientSocket, reinterpret_cast<char*>(&total_file_size), sizeof(long long), 0);
 
-    // Получаем количество частей файла
     int num_chunks;
     recv(clientSocket, reinterpret_cast<char*>(&num_chunks), sizeof(int), 0);
-
-    // Определяем директорию для сохранения файла (рабочий стол пользователя)
     string saveDirectory = "C:\\Users\\%Public%\\Desktop\\";
-
-    // Полный путь к файлу на рабочем столе
     string filePath = saveDirectory + filename;
 
-    // Открываем файл для записи в бинарном режиме
     ofstream file(filePath, ios::binary);
     if (!file.is_open())
     {
@@ -121,7 +112,6 @@ void ReceiveFileFromClient(SOCKET clientSocket)
         return;
     }
 
-    // Принимаем и записываем каждую часть файла
     for (int i = 0; i < num_chunks; ++i)
     {
         char chunk_buffer[DEFAULT_BUFLEN];
@@ -135,9 +125,7 @@ void ReceiveFileFromClient(SOCKET clientSocket)
         file.write(chunk_buffer, bytesReceived);
     }
 
-    // Закрываем файл
     file.close();
-    // Выводим сообщение о успешном сохранении файла
     cout << "Файл \"" << filename << "\" успешно сохранен на рабочем столе." << endl;
 }
 
@@ -235,6 +223,7 @@ void UserInputListener()
 
 int main()
 {
+    setlocale(LC_ALL, "Russian");
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
     SetConsoleTitleA("ADMIN");

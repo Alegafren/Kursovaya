@@ -7,3 +7,11 @@
 	<fstream>
 	<filesystem>
 
+1715844966 source:d:\Æåíÿ\c++\kursovaya\client\main.cpp
+	<iostream>
+	<ws2tcpip.h>
+	<conio.h>
+	<string>
+	<fstream>
+	<filesystem>
+

@@ -190,11 +190,9 @@ int main()
                                     cout << "Запрос на получение списка файлов отправлен...\n";
                                     Sleep(1500);
                                     system("CLS");
-                                    // Отправляем запрос на получение списка файлов на сервере
                                     const char *request_list = "list";
                                     send(ConnectSocket, request_list, strlen(request_list), 0);
 
-                                    // Получаем список файлов и каталогов с сервера
                                     char recvbuf[DEFAULT_BUFLEN];
                                     int bytesReceived = recv(ConnectSocket, recvbuf, DEFAULT_BUFLEN, 0);
                                     if (bytesReceived > 0)
@@ -219,25 +217,20 @@ int main()
                                         cout << "Не удалось открыть файл: \n" << filePath << endl;
                                         return 1;
                                     }
-
-                                    // Получение имени файла и его размера
                                     string file_name = filePath.substr(filePath.find_last_of("/\\") + 1);
                                     int file_size = file.tellg();
                                     file.seekg(0, ios::beg);
 
-                                    // Выделение памяти для буфера файла и чтение файла в буфер
                                     char* file_buffer = new char[file_size];
                                     file.read(file_buffer, file_size);
                                     file.close();
 
-                                    // Отправка файла на сервер
                                     const char *request_file = "start_file_transfer";
                                     send(ConnectSocket, request_file, strlen(request_file), 0);
                                     send(ConnectSocket, reinterpret_cast<char*>(&file_name), sizeof(int), 0);
                                     send(ConnectSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
                                     send(ConnectSocket, file_buffer, file_size, 0);
 
-                                    // Освобождение памяти, выделенной под буфер
                                     delete[] file_buffer;
 
                                     cout << "Файл \"" << file_name << "\" успешно отправлен на сервер." << endl;
@@ -252,8 +245,6 @@ int main()
                                     {
                                         cerr << "Ошибка при получении статуса доставки файла от сервера." << endl;
                                     }
-
-                                    // Предложение отправить еще один файл или вернуться в главное меню
                                     char answer;
                                     cout << "Хотите отправить еще один файл? (Д/Н): ";
                                     ConsoleCursorVisible(true, 10);
@@ -262,7 +253,7 @@ int main()
                                     if (answer == 'Н' || answer == 'н')
                                     {
                                         ConsoleCursorVisible(false, 100);
-                                        active_menu = 0; // Возврат в главное меню
+                                        active_menu = 0;
                                     }
                                     else if (answer != 'Д' && answer != 'д')
                                     {
@@ -283,11 +274,11 @@ int main()
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                                     GoToXYI(x,y);
                                     cout << "Привет! Тебя приветствует программа, которая передаст любой файл другому пользователю!\n" << endl;
-                                    GoToXYI(10,11);
+                                    GoToXYI(5,11);
                                     cout << "С помощью этой программы ты можешь передавать файлы весом более 1ГБ! Поддерживается много форматов!\n" << endl;
-                                    GoToXYI(10,12);
+                                    GoToXYI(5,12);
                                     cout << "Не бойся твои файлы придут без искажений, потому что для их передачи мы исользуем протокол TCP, не UDP\n" << endl;
-                                    GoToXYI(10,13);
+                                    GoToXYI(5,13);
                                     cout << "Это не окончательный вариант программы, она будет дорабатываться, потому что с таким меню можно нажать только один раз на одну кнопку(\n" << endl;
                                     _getch();
                                     system("CLS");
