@@ -14,3 +14,11 @@
 	<fstream>
 	<thread>
 
+1716927960 source:d:\ВУЗ\2Курс\Программирование и основы алгоритмизации\Курсач\kursovaya\server\main.cpp
+	<iostream>
+	<ws2tcpip.h>
+	<conio.h>
+	<vector>
+	<fstream>
+	<thread>
+

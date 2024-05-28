@@ -172,7 +172,6 @@ int main()
                                     {
                                         cerr << "Ошибка при получении данных от сервера." << endl;
                                     }
-
                                     active_menu = 0;
                                 }
                                 else if (active_menu == 1)
@@ -227,9 +226,22 @@ int main()
 
                                     const char *request_file = "start_file_transfer";
                                     send(ConnectSocket, request_file, strlen(request_file), 0);
-                                    send(ConnectSocket, reinterpret_cast<char*>(&file_name), sizeof(int), 0);
+
+                                    int filename_size = file_name.size();
+                                    send(ConnectSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0);
+                                    send(ConnectSocket, file_name.c_str(), filename_size, 0);
+
                                     send(ConnectSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
-                                    send(ConnectSocket, file_buffer, file_size, 0);
+
+                                    const int chunk_size = DEFAULT_BUFLEN;
+                                    int num_chunks = (file_size + chunk_size - 1) / chunk_size;
+                                    send(ConnectSocket, reinterpret_cast<char*>(&num_chunks), sizeof(int), 0);
+
+                                    for (int i = 0; i < num_chunks; ++i)
+                                    {
+                                        int current_chunk_size = std::min(chunk_size, file_size - i * chunk_size);
+                                        send(ConnectSocket, file_buffer + i * chunk_size, current_chunk_size, 0);
+                                    }
 
                                     delete[] file_buffer;
 
@@ -291,7 +303,6 @@ int main()
                             }
                         }
                     }
-                 // Евгений викторович сего
                     else
                     {
                         if (!errorDisplayed)

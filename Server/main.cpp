@@ -93,17 +93,53 @@ void SendActiveUsersToAllClients()
 
 void ReceiveFileFromClient(SOCKET clientSocket)
 {
-    char filename_buf[DEFAULT_BUFLEN];
+    char filename_buf[DEFAULT_BUFLEN] = {0};
     int filename_size;
-    recv(clientSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0);
-    recv(clientSocket, filename_buf, filename_size, 0);
+    if (recv(clientSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0) <= 0)
+    {
+        cerr << "Ошибка при получении размера имени файла." << endl;
+        return;
+    }
+    if (filename_size <= 0 || filename_size >= DEFAULT_BUFLEN)
+    {
+        cerr << "Некорректный размер имени файла." << endl;
+        return;
+    }
+    if (recv(clientSocket, filename_buf, filename_size, 0) <= 0)
+    {
+        cerr << "Ошибка при получении имени файла." << endl;
+        return;
+    }
     string filename(filename_buf, filename_size);
     long long total_file_size;
-    recv(clientSocket, reinterpret_cast<char*>(&total_file_size), sizeof(long long), 0);
+    if (recv(clientSocket, reinterpret_cast<char*>(&total_file_size), sizeof(long long), 0) <= 0)
+    {
+        cerr << "Ошибка при получении размера файла." << endl;
+        return;
+    }
 
     int num_chunks;
-    recv(clientSocket, reinterpret_cast<char*>(&num_chunks), sizeof(int), 0);
-    string saveDirectory = "C:\\Users\\%Public%\\Desktop\\";
+    if (recv(clientSocket, reinterpret_cast<char*>(&num_chunks), sizeof(int), 0) <= 0)
+    {
+        cerr << "Ошибка при получении количества частей файла." << endl;
+        return;
+    }
+
+    TCHAR szPath[MAX_PATH];
+    if (GetModuleFileName(NULL, szPath, MAX_PATH) == 0)
+    {
+        cerr << "Ошибка при получении пути к исполняемому файлу." << endl;
+        return;
+    }
+    string appDirectory = szPath;
+    size_t pos = appDirectory.find_last_of("\\/");
+    if (pos != string::npos)
+    {
+        appDirectory = appDirectory.substr(0, pos);
+    }
+    string saveDirectory = appDirectory + "\\SavedFiles\\";
+    CreateDirectory(saveDirectory.c_str(), NULL);
+
     string filePath = saveDirectory + filename;
 
     ofstream file(filePath, ios::binary);
@@ -115,7 +151,7 @@ void ReceiveFileFromClient(SOCKET clientSocket)
 
     for (int i = 0; i < num_chunks; ++i)
     {
-        char chunk_buffer[DEFAULT_BUFLEN];
+        char chunk_buffer[DEFAULT_BUFLEN] = {0};
         int bytesReceived = recv(clientSocket, chunk_buffer, DEFAULT_BUFLEN, 0);
         if (bytesReceived <= 0)
         {
@@ -127,7 +163,7 @@ void ReceiveFileFromClient(SOCKET clientSocket)
     }
 
     file.close();
-    cout << "Файл \"" << filename << "\" успешно сохранен на рабочем столе." << endl;
+    cout << "Файл \"" << filename << "\" успешно сохранен в директории приложения." << endl;
 }
 
 void ClientHandler(SOCKET clientSocket)
@@ -181,7 +217,6 @@ void ClientHandler(SOCKET clientSocket)
             }
         }
     }
-
     closesocket(clientSocket);
     for (int i = 0; i < activeConnections; ++i)
     {
