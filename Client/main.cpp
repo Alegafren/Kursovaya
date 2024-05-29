@@ -7,7 +7,7 @@
 
 #define IP_ADDRESS "localhost"
 #define DEFAULT_PORT "27015"
-#define DEFAULT_BUFLEN 512
+#define DEFAULT_BUFLEN 8192
 
 #define UP 72
 #define DOWN 80
@@ -38,12 +38,11 @@ int main()
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
 
-    SetConsoleTitleA("User client");
+    SetConsoleTitleA("USER CLIENT");
     system("CLS");
     ConsoleCursorVisible(false, 100);
-    string Zagolovok = "Московский Политех";
     string Menu[] = { "Подключиться к серверу", "Не подключаться к серверу", "Выход" };
-    string UserMenu[] = { "Информация об активных пользователях", "Отправить файл пользователю", "Статус серверного хранилища", "Помощь", "Выход" };
+    string UserMenu[] = { "Информация об активных пользователях", "Отправить файл на сервер", "Статус серверного хранилища", "Помощь", "Выход" };
 
     char ch;
     bool connected = false;
@@ -57,7 +56,7 @@ int main()
     SOCKET ConnectSocket = INVALID_SOCKET;
     WSAStartup(MAKEWORD(2,2), &wsaData);
     ZeroMemory(&hints, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = AI_PASSIVE;
@@ -152,6 +151,7 @@ int main()
                             case ENTER:
                                 if (active_menu == 0)
                                 {
+                                    GoToXYI(x, y);
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                                     char recvbuf[DEFAULT_BUFLEN];
                                     const char *request = "list";
@@ -160,7 +160,6 @@ int main()
                                     timeout.tv_sec = 5;
                                     timeout.tv_usec = 0;
                                     setsockopt(ConnectSocket, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
-
                                     int bytesReceived = recv(ConnectSocket, recvbuf, DEFAULT_BUFLEN, 0);
                                     if (bytesReceived > 0)
                                     {
@@ -172,50 +171,40 @@ int main()
                                     {
                                         cerr << "Ошибка при получении данных от сервера." << endl;
                                     }
-                                    active_menu = 0;
                                 }
                                 else if (active_menu == 1)
                                 {
                                     system("CLS");
-                                    GoToXYI(x, y);
-                                    string recipientId;
-                                    cout << "Введите ID получателя файла: ";
-                                    ConsoleCursorVisible(true, 10);
-                                    getline(cin, recipientId);
-                                    send(ConnectSocket, recipientId.c_str(), recipientId.size(), 0);
-                                    ConsoleCursorVisible(false, 100);
-                                    system("CLS");
-                                    GoToXYI(x, y);
-                                    cout << "Запрос на получение списка файлов отправлен...\n";
-                                    Sleep(1500);
-                                    system("CLS");
+                                    SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                                     const char *request_list = "list";
                                     send(ConnectSocket, request_list, strlen(request_list), 0);
-
                                     char recvbuf[DEFAULT_BUFLEN];
                                     int bytesReceived = recv(ConnectSocket, recvbuf, DEFAULT_BUFLEN, 0);
-                                    if (bytesReceived > 0)
-                                    {
-                                        recvbuf[bytesReceived] = '\0';
-                                        cout << "Список файлов и каталогов на сервере:\n";
-                                        cout << recvbuf << endl;
-                                    }
-                                    else
-                                    {
-                                        cerr << "Ошибка при получении данных от сервера." << endl;
-                                    }
-                                    cout << "Выберите файл для отправки (введите абсолютный путь или имя файла из списка): ";
-                                    string filePath;
-                                    ConsoleCursorVisible(true, 10);
-                                    getline(cin, filePath);
-                                    ConsoleCursorVisible(false, 100);
 
-                                    ifstream file(filePath, ios::binary | ios::ate);
-                                    if (!file.is_open())
+                                    string filePath;
+                                    ifstream file;
+                                    while (true)
                                     {
-                                        cout << "Не удалось открыть файл: \n" << filePath << endl;
-                                        return 1;
+                                        GoToXYI(35, 14);
+                                        cout << "Выберите файл для отправки (введите абсолютный путь): ";
+                                        ConsoleCursorVisible(true, 10);
+                                        getline(cin, filePath);
+                                        ConsoleCursorVisible(false, 100);
+                                        file.open(filePath, ios::binary | ios::ate);
+                                        if (!file.is_open())
+                                        {
+                                            system("CLS");
+                                            GoToXYI(35, 12);
+                                            cout << "Не удалось открыть файл или путь написан некорректно: " << filePath << endl;
+                                            GoToXYI(35, 13);
+                                            cout << "Пожалуйста, попробуйте снова." << endl;
+                                        }
+                                        else
+                                        {
+                                            break;
+                                        }
                                     }
+
                                     string file_name = filePath.substr(filePath.find_last_of("/\\") + 1);
                                     int file_size = file.tellg();
                                     file.seekg(0, ios::beg);
@@ -245,53 +234,107 @@ int main()
 
                                     delete[] file_buffer;
 
+                                    system("CLS");
+                                    GoToXYI(35, 14);
                                     cout << "Файл \"" << file_name << "\" успешно отправлен на сервер." << endl;
                                     char status[DEFAULT_BUFLEN];
                                     bytesReceived = recv(ConnectSocket, status, DEFAULT_BUFLEN, 0);
                                     if (bytesReceived > 0)
                                     {
+                                        GoToXYI(35, 13);
                                         status[bytesReceived] = '\0';
                                         cout << "Статус доставки файла: " << status << endl;
+                                        _getch();
+                                        system("CLS");
                                     }
                                     else
                                     {
+                                        GoToXYI(35, 13);
                                         cerr << "Ошибка при получении статуса доставки файла от сервера." << endl;
+                                        _getch();
+                                        system("CLS");
                                     }
-                                    char answer;
-                                    cout << "Хотите отправить еще один файл? (Д/Н): ";
-                                    ConsoleCursorVisible(true, 10);
-                                    cin >> answer;
-                                    cin.ignore();
-                                    if (answer == 'Н' || answer == 'н')
-                                    {
-                                        ConsoleCursorVisible(false, 100);
-                                        active_menu = 0;
-                                    }
-                                    else if (answer != 'Д' && answer != 'д')
-                                    {
-                                        cout << "Некорректный ввод. Пожалуйста, попробуйте снова." << endl;
-                                    }
-                                    ConsoleCursorVisible(false, 100);
                                 }
+
                                 else if (active_menu == 2)
                                 {
                                     system("CLS");
+                                    GoToXYI(50, 12);
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-                                    GoToXYI(x,y);
-                                    cout << "Когда-то тут может появиться серверное хранилище\n" << endl;
+                                    cout << "Запрос списка файлов на сервере...\n";
+                                    Sleep(1500);
+                                    system("CLS");
+
+                                    const char *request_list_files = "list_files";
+                                    send(ConnectSocket, request_list_files, strlen(request_list_files), 0);
+
+                                    char recvbuf[DEFAULT_BUFLEN];
+                                    int bytesReceived = recv(ConnectSocket, recvbuf, DEFAULT_BUFLEN, 0);
+                                    if (bytesReceived > 0)
+                                    {
+                                        recvbuf[bytesReceived] = '\0';
+                                        cout << "Список файлов на сервере:\n" << recvbuf << endl;
+
+                                        string fileName;
+                                        GoToXYI(48, 13);
+                                        cout << "Введите имя файла для загрузки: ";
+                                        ConsoleCursorVisible(true, 10);
+                                        getline(cin, fileName);
+                                        ConsoleCursorVisible(false, 100);
+
+                                        if (fileName.empty())
+                                        {
+                                            GoToXYI(48, 14);
+                                            cerr << "Имя файла не может быть пустым. Пожалуйста, попробуйте снова." << endl;
+                                            continue;
+                                        }
+                                        const char *request_download_file = "download_file";
+                                        send(ConnectSocket, request_download_file, strlen(request_download_file), 0);
+                                        int filename_size = fileName.size();
+                                        send(ConnectSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0);
+                                        send(ConnectSocket, fileName.c_str(), filename_size, 0);
+                                        int file_size;
+                                        bytesReceived = recv(ConnectSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
+                                        ofstream outFile(fileName, ios::binary);
+                                        if (!outFile)
+                                        {
+                                            cerr << "Ошибка при открытии файла для записи." << endl;
+                                            return 1;
+                                        }
+
+                                        char file_buffer[DEFAULT_BUFLEN];
+                                        int total_bytes_received = 0;
+                                        while (total_bytes_received < file_size)
+                                        {
+                                            bytesReceived = recv(ConnectSocket, file_buffer, DEFAULT_BUFLEN, 0);
+                                            if (bytesReceived <= 0)
+                                            {
+                                                cerr << "Ошибка при получении данных от сервера." << endl;
+                                                break;
+                                            }
+                                            outFile.write(file_buffer, bytesReceived);
+                                            total_bytes_received += bytesReceived;
+                                        }
+                                        outFile.close();
+                                        system("CLS");
+                                        GoToXYI(48, 13);
+                                        cout << "Файл успешно загружен." << endl;
+                                        Sleep(2000);
+                                        system("CLS");
+                                    }
                                 }
                                 else if (active_menu == 3)
                                 {
                                     system("CLS");
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-                                    GoToXYI(x,y);
-                                    cout << "Привет! Тебя приветствует программа, которая передаст любой файл другому пользователю!\n" << endl;
-                                    GoToXYI(5,11);
-                                    cout << "С помощью этой программы ты можешь передавать файлы весом более 1ГБ! Поддерживается много форматов!\n" << endl;
-                                    GoToXYI(5,12);
-                                    cout << "Не бойся твои файлы придут без искажений, потому что для их передачи мы исользуем протокол TCP, не UDP\n" << endl;
-                                    GoToXYI(5,13);
-                                    cout << "Это не окончательный вариант программы, она будет дорабатываться, потому что с таким меню можно нажать только один раз на одну кнопку(\n" << endl;
+                                    GoToXYI(7,11);
+                                    cout << "Привет! Тебя приветствует программа, которая может отправлять файлы на сервер и скачивать их оттуда!\n" << endl;
+                                    GoToXYI(7,12);
+                                    cout << "НО сначала же надо серверу эти файлы как-то получить? Да, именно ТЫ первый кто отправит на сервер первый файл.\n" << endl;
+                                    GoToXYI(7,13);
+                                    cout << "Форматы файлов, которые может передать пргограмма: pdf,docx,txt,png и другие! Кроме, rar и zip...\n" << endl;
+                                    GoToXYI(7,14);
+                                    cout << "Максимальный объем файла, который может передать программа более 1ГБ, я проверял, реально передала!\n" << endl;
                                     _getch();
                                     system("CLS");
                                 }

@@ -1,20 +1,14 @@
 # depslib dependency file v1.0
-1715811517 source:d:\ВУЗ\2Курс\Программирование и основы алгоритмизации\Курсач\server\main.cpp
-	<iostream>
-	<ws2tcpip.h>
-	<vector>
-	<fstream>
-	<thread>
-
-1715852952 source:d:\Женя\c++\kursovaya\server\main.cpp
+1717004665 source:d:\ВУЗ\2Курс\Программирование и основы алгоритмизации\Курсач\server\main.cpp
 	<iostream>
 	<ws2tcpip.h>
 	<conio.h>
 	<vector>
 	<fstream>
 	<thread>
+	<cstdlib>
 
-1716927960 source:d:\ВУЗ\2Курс\Программирование и основы алгоритмизации\Курсач\kursovaya\server\main.cpp
+1715852952 source:d:\Женя\c++\kursovaya\server\main.cpp
 	<iostream>
 	<ws2tcpip.h>
 	<conio.h>

@@ -4,6 +4,7 @@
 #include <vector>
 #include <fstream>
 #include <thread>
+#include <cstdlib>
 
 #define DEFAULT_BUFLEN 8192
 #define DEFAULT_PORT "27015"
@@ -14,6 +15,7 @@ SOCKET Connections[100];
 SOCKET ServerSocket;
 int activeConnections = 0;
 bool activeUsersChanged = false;
+bool isServerRunning = true;
 
 struct User
 {
@@ -21,13 +23,13 @@ struct User
     string username;
 };
 
+vector<User> activeUsers;
+
 int GenerateUniqueId()
 {
     static int idCounter = 0;
     return ++idCounter;
 }
-
-vector<User> activeUsers;
 
 void SaveActiveUsersToFile()
 {
@@ -111,20 +113,18 @@ void ReceiveFileFromClient(SOCKET clientSocket)
         return;
     }
     string filename(filename_buf, filename_size);
-    long long total_file_size;
-    if (recv(clientSocket, reinterpret_cast<char*>(&total_file_size), sizeof(long long), 0) <= 0)
+    int file_size;
+    if (recv(clientSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0) <= 0)
     {
         cerr << "Ошибка при получении размера файла." << endl;
         return;
     }
-
     int num_chunks;
     if (recv(clientSocket, reinterpret_cast<char*>(&num_chunks), sizeof(int), 0) <= 0)
     {
         cerr << "Ошибка при получении количества частей файла." << endl;
         return;
     }
-
     TCHAR szPath[MAX_PATH];
     if (GetModuleFileName(NULL, szPath, MAX_PATH) == 0)
     {
@@ -139,16 +139,13 @@ void ReceiveFileFromClient(SOCKET clientSocket)
     }
     string saveDirectory = appDirectory + "\\SavedFiles\\";
     CreateDirectory(saveDirectory.c_str(), NULL);
-
     string filePath = saveDirectory + filename;
-
     ofstream file(filePath, ios::binary);
     if (!file.is_open())
     {
         cerr << "Ошибка при сохранении файла на сервере: " << filename << endl;
         return;
     }
-
     for (int i = 0; i < num_chunks; ++i)
     {
         char chunk_buffer[DEFAULT_BUFLEN] = {0};
@@ -164,13 +161,70 @@ void ReceiveFileFromClient(SOCKET clientSocket)
 
     file.close();
     cout << "Файл \"" << filename << "\" успешно сохранен в директории приложения." << endl;
+    send(clientSocket, "Файл успешно доставлен.", strlen("Файл успешно доставлен."), 0);
+}
+
+void SendFileListToClient(SOCKET clientSocket)
+{
+    string file_list;
+    string directory = "SavedFiles\\";
+    WIN32_FIND_DATA findFileData;
+    HANDLE hFind = FindFirstFile((directory + "*").c_str(), &findFileData);
+
+    if (hFind == INVALID_HANDLE_VALUE)
+    {
+        cerr << "Не удалось получить список файлов в директории." << endl;
+        return;
+    }
+    do
+    {
+        const string file_or_dir = findFileData.cFileName;
+        if (file_or_dir != "." && file_or_dir != "..")
+        {
+            file_list += file_or_dir + "\n";
+        }
+    }
+    while (FindNextFile(hFind, &findFileData) != 0);
+
+    FindClose(hFind);
+
+    send(clientSocket, file_list.c_str(), file_list.size(), 0);
+}
+
+void SendFileToClient(SOCKET clientSocket, const string& filename)
+{
+    string file_path = "SavedFiles\\" + filename;
+    ifstream file(file_path, ios::binary);
+
+    if (!file.is_open())
+    {
+        string error_message = "file_not_found";
+        send(clientSocket, error_message.c_str(), error_message.size(), 0);
+        return;
+    }
+
+    file.seekg(0, ios::end);
+    int file_size = file.tellg();
+    file.seekg(0, ios::beg);
+
+    send(clientSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
+
+    char buffer[DEFAULT_BUFLEN];
+    while (!file.eof())
+    {
+        file.read(buffer, sizeof(buffer));
+        int bytes_read = file.gcount();
+        send(clientSocket, buffer, bytes_read, 0);
+    }
+
+    file.close();
 }
 
 void ClientHandler(SOCKET clientSocket)
 {
     char recvbuf[DEFAULT_BUFLEN];
     int bytesReceived;
-    while (true)
+    while (isServerRunning)
     {
         bytesReceived = recv(clientSocket, recvbuf, DEFAULT_BUFLEN, 0);
         if (bytesReceived == SOCKET_ERROR || bytesReceived == 0)
@@ -179,7 +233,7 @@ void ClientHandler(SOCKET clientSocket)
             break;
         }
 
-        string message(recvbuf, bytesReceived);
+        std::string message(recvbuf, bytesReceived);
         if (message == "start_file_transfer")
         {
             ReceiveFileFromClient(clientSocket);
@@ -188,15 +242,38 @@ void ClientHandler(SOCKET clientSocket)
         {
             SendActiveUsersToConnectedClients(clientSocket);
         }
+        else if (message == "list_files")
+        {
+            SendFileListToClient(clientSocket);
+        }
+        else if (message == "download_file")
+        {
+            int filename_size;
+            if (recv(clientSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0) <= 0)
+            {
+                cerr << "Ошибка при получении размера имени файла." << endl;
+                continue;
+            }
+
+            char filename_buf[DEFAULT_BUFLEN] = {0};
+            if (recv(clientSocket, filename_buf, filename_size, 0) <= 0)
+            {
+                cerr << "Ошибка при получении имени файла." << endl;
+                continue;
+            }
+
+            string filename(filename_buf, filename_size);
+            SendFileToClient(clientSocket, filename);
+        }
         else
         {
             char usernameBuf[DEFAULT_BUFLEN];
             memcpy(usernameBuf, recvbuf, bytesReceived);
             usernameBuf[bytesReceived] = '\0';
-            string username(usernameBuf);
+            std::string username(usernameBuf);
 
             bool isNewUser = true;
-            for (const User &user : activeUsers)
+            for (const User& user : activeUsers)
             {
                 if (user.username == username)
                 {
@@ -235,7 +312,7 @@ void ClientHandler(SOCKET clientSocket)
 void UserInputListener()
 {
     string input;
-    while (true)
+    while (isServerRunning)
     {
         cout << "Введите 'exit', чтобы завершить работу сервера: ";
         cin >> input;
@@ -251,6 +328,7 @@ void UserInputListener()
             inFile.close();
             ofstream clearFile("active_users.txt", ios::trunc);
             clearFile.close();
+            isServerRunning = false;
             WSACleanup();
             _getch();
             exit(0);
@@ -263,7 +341,7 @@ int main()
     setlocale(LC_ALL, "Russian");
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
-    SetConsoleTitleA("ADMIN");
+    SetConsoleTitleA("ADMIN PANEL");
 
     WSADATA wsaData;
     struct addrinfo *result = NULL;
@@ -271,7 +349,7 @@ int main()
 
     WSAStartup(MAKEWORD(2, 2), &wsaData);
     ZeroMemory(&hints, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = AI_PASSIVE;
@@ -288,9 +366,10 @@ int main()
     thread inputThread(UserInputListener);
     inputThread.detach();
 
-    while (true)
+    while (isServerRunning)
     {
         SOCKET ClientSocket = accept(ServerSocket, NULL, NULL);
+        if (!isServerRunning) break;
         if (ClientSocket == INVALID_SOCKET)
         {
             cerr << "Ошибка при принятии подключения." << endl;
