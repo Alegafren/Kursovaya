@@ -4,7 +4,6 @@
 #include <vector>
 #include <fstream>
 #include <thread>
-#include <cstdlib>
 
 #define DEFAULT_BUFLEN 8192
 #define DEFAULT_PORT "27015"
@@ -174,6 +173,8 @@ void SendFileListToClient(SOCKET clientSocket)
     if (hFind == INVALID_HANDLE_VALUE)
     {
         cerr << "Не удалось получить список файлов в директории." << endl;
+        string error_message = "Директории на сервере не существует. Необходимо создать директорию.";
+        send(clientSocket, error_message.c_str(), error_message.size(), 0);
         return;
     }
     do
@@ -185,7 +186,6 @@ void SendFileListToClient(SOCKET clientSocket)
         }
     }
     while (FindNextFile(hFind, &findFileData) != 0);
-
     FindClose(hFind);
 
     send(clientSocket, file_list.c_str(), file_list.size(), 0);
@@ -233,7 +233,7 @@ void ClientHandler(SOCKET clientSocket)
             break;
         }
 
-        std::string message(recvbuf, bytesReceived);
+        string message(recvbuf, bytesReceived);
         if (message == "start_file_transfer")
         {
             ReceiveFileFromClient(clientSocket);
@@ -270,7 +270,7 @@ void ClientHandler(SOCKET clientSocket)
             char usernameBuf[DEFAULT_BUFLEN];
             memcpy(usernameBuf, recvbuf, bytesReceived);
             usernameBuf[bytesReceived] = '\0';
-            std::string username(usernameBuf);
+            string username(usernameBuf);
 
             bool isNewUser = true;
             for (const User& user : activeUsers)
