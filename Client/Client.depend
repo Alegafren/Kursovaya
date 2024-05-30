@@ -15,3 +15,11 @@
 	<fstream>
 	<filesystem>
 
+1717086164 source:d:\ВУЗ\2Курс\Программирование и основы алгоритмизации\Курсач\kursovaya\client\main.cpp
+	<iostream>
+	<ws2tcpip.h>
+	<conio.h>
+	<string>
+	<fstream>
+	<filesystem>
+

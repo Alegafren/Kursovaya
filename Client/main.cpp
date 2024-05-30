@@ -16,13 +16,18 @@
 
 using namespace std;
 
+//Урок для создания этого меню
+//https://www.youtube.com/watch?v=AxzaXJMBfi4
+//Поучение дескриптора консоли для дальнейшей работы с меню
 HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
 
+// Функция для перемещения курсора в консоли
 void GoToXYI(short x, short y)
 {
     SetConsoleCursorPosition(hStdOut, {x, y});
 }
 
+//Функция для регулирования отображения каретки консоли
 void ConsoleCursorVisible(bool show, short size)
 {
     CONSOLE_CURSOR_INFO structCursorInfo;
@@ -49,6 +54,7 @@ int main()
     bool errorDisplayed = false;
     int active_menu = 0;
 
+    // Инициализация Winsock
     WSADATA wsaData;
     struct addrinfo *result = NULL;
     struct addrinfo *ptr = NULL;
@@ -103,12 +109,13 @@ int main()
 
                 for(ptr=result; ptr != NULL ; ptr=ptr->ai_next)
                 {
+                    //Инициализация сокета с параметрами, определфыми в ptr
                     ConnectSocket = socket(ptr->ai_family, ptr->ai_socktype, ptr->ai_protocol);
                     if  (connect(ConnectSocket, ptr->ai_addr, (int)ptr->ai_addrlen) != SOCKET_ERROR)
                     {
                         GoToXYI(x,y);
                         cout << "Вы были успешно подключены!" << endl;
-                        connected = true;
+                        connected = true; //Флаг подлючения, до которого никогда никто не дойдёт
                         Sleep(1500);
                         system("CLS");
                         GoToXYI(30,y);
@@ -118,6 +125,7 @@ int main()
                         cout << "Login: ";
                         ConsoleCursorVisible(true, 10);
                         getline(cin, UserName);
+                        //Отправляем ник пользователя на сервер
                         send(ConnectSocket, UserName.c_str(), UserName.size(), 0);
                         ConsoleCursorVisible(false, 100);
                         Sleep(1000);
@@ -155,7 +163,8 @@ int main()
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                                     char recvbuf[DEFAULT_BUFLEN];
                                     const char *request = "list";
-                                    send(ConnectSocket, request, strlen(request), 0);
+                                    send(ConnectSocket, request, strlen(request), 0); //Отправляем реквест серверу о том, что надо кинуть список пользователей
+                                    //Задаём таймаут для приема данных от сервера, для обновления информации об пользователях
                                     timeval timeout;
                                     timeout.tv_sec = 5;
                                     timeout.tv_usec = 0;
@@ -176,6 +185,7 @@ int main()
                                 {
                                     system("CLS");
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+                                    //Честно без этого листа код программы дальше не воспроизводился
                                     const char *request_list = "list";
                                     send(ConnectSocket, request_list, strlen(request_list), 0);
                                     char recvbuf[DEFAULT_BUFLEN];
@@ -190,6 +200,7 @@ int main()
                                         ConsoleCursorVisible(true, 10);
                                         getline(cin, filePath);
                                         ConsoleCursorVisible(false, 100);
+                                        //Открываем файл бинарно
                                         file.open(filePath, ios::binary | ios::ate);
                                         if (!file.is_open())
                                         {
@@ -204,24 +215,29 @@ int main()
                                             break;
                                         }
                                     }
-
+                                    //Извлекаем имя файла из абсолютного пути
+                                    //Находим последний символ / или \\ и извлекаем имя файла
                                     string file_name = filePath.substr(filePath.find_last_of("/\\") + 1);
+                                    //Определяем размер файла
+                                    //https://www.youtube.com/watch?v=gZpVut4KUbo
+                                    //Откуда был взят код для передачи файла
                                     int file_size = file.tellg();
+                                    //Начинаем читать файл с начала
                                     file.seekg(0, ios::beg);
-
+                                    //СОздаём буфер для содержимого файла
                                     char* file_buffer = new char[file_size];
                                     file.read(file_buffer, file_size);
+                                    //Закрываем файл
                                     file.close();
-
+                                    //Кидаем реквест серверу на начало отправки файла на сервер
                                     const char *request_file = "start_file_transfer";
                                     send(ConnectSocket, request_file, strlen(request_file), 0);
-
+                                    //Отправляем имя файла и его размер на сервер
                                     int filename_size = file_name.size();
                                     send(ConnectSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0);
                                     send(ConnectSocket, file_name.c_str(), filename_size, 0);
-
                                     send(ConnectSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
-
+                                    //Начинаем отправлять файл частями
                                     const int chunk_size = DEFAULT_BUFLEN;
                                     int num_chunks = (file_size + chunk_size - 1) / chunk_size;
                                     send(ConnectSocket, reinterpret_cast<char*>(&num_chunks), sizeof(int), 0);
@@ -232,11 +248,13 @@ int main()
                                         send(ConnectSocket, file_buffer + i * chunk_size, current_chunk_size, 0);
                                     }
 
+                                    //Удаляем динамическую память выделенную на передачу файла
                                     delete[] file_buffer;
 
                                     system("CLS");
                                     GoToXYI(35, 14);
                                     cout << "Файл \"" << file_name << "\" успешно отправлен на сервер." << endl;
+                                    //Получаем статус доставки файла
                                     char status[DEFAULT_BUFLEN];
                                     bytesReceived = recv(ConnectSocket, status, DEFAULT_BUFLEN, 0);
                                     if (bytesReceived > 0)
@@ -255,7 +273,6 @@ int main()
                                         system("CLS");
                                     }
                                 }
-
                                 else if (active_menu == 2)
                                 {
                                     system("CLS");
@@ -264,7 +281,7 @@ int main()
                                     cout << "Запрос списка файлов на сервере...\n";
                                     Sleep(1500);
                                     system("CLS");
-
+                                    //Запрашиваем список файлов доступных на сервере
                                     const char *request_list_files = "list_files";
                                     send(ConnectSocket, request_list_files, strlen(request_list_files), 0);
 
@@ -273,6 +290,18 @@ int main()
                                     if (bytesReceived > 0)
                                     {
                                         recvbuf[bytesReceived] = '\0';
+                                        string receivedMessage(recvbuf);
+                                        //Вывод ошибки о том, что директории на сервере не существует
+                                        if (receivedMessage.find("Директории на сервере не существует") != string::npos)
+                                        {
+                                            GoToXYI(43, 12);
+                                            cerr << receivedMessage << endl;
+                                            Sleep(2000);
+                                            system("CLS");
+                                            active_menu = 0;
+                                            continue;
+                                        }
+
                                         cout << "Список файлов на сервере:\n" << recvbuf << endl;
 
                                         string fileName;
@@ -281,15 +310,20 @@ int main()
                                         ConsoleCursorVisible(true, 10);
                                         getline(cin, fileName);
                                         ConsoleCursorVisible(false, 100);
-
+                                        //Выводим сообщение олб ошибке, если поле пустое
                                         if (fileName.empty())
                                         {
                                             GoToXYI(48, 14);
                                             cerr << "Имя файла не может быть пустым. Пожалуйста, попробуйте снова." << endl;
                                             continue;
                                         }
+                                        //А как проверять на неправильно введеные имена я не знаю
+                                        //Если ввести имя файла неправильно, то сервер отправит несуществующий файл пользователю
+                                        //Который будет называться как его вписал пользователь
+                                        //После этого действия пользовательская программа *заморозится*
                                         const char *request_download_file = "download_file";
                                         send(ConnectSocket, request_download_file, strlen(request_download_file), 0);
+                                        //Отправляем информацию о файле, которую хотим получить
                                         int filename_size = fileName.size();
                                         send(ConnectSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0);
                                         send(ConnectSocket, fileName.c_str(), filename_size, 0);
@@ -301,7 +335,7 @@ int main()
                                             cerr << "Ошибка при открытии файла для записи." << endl;
                                             return 1;
                                         }
-
+                                        //Получаем файл
                                         char file_buffer[DEFAULT_BUFLEN];
                                         int total_bytes_received = 0;
                                         while (total_bytes_received < file_size)
@@ -325,6 +359,10 @@ int main()
                                 }
                                 else if (active_menu == 3)
                                 {
+                                    //Блок, приветствующий пользователя
+                                    //По-идее он должен быть раньше?
+                                    //Потому что когда пользователь впервые заходит в программу, то он не знает о том, что навцигация производится на стрелочки!
+                                    //Странное ли это решение?
                                     system("CLS");
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                                     GoToXYI(7,11);
@@ -335,6 +373,8 @@ int main()
                                     cout << "Форматы файлов, которые может передать пргограмма: pdf,docx,txt,png и другие! Кроме, rar и zip...\n" << endl;
                                     GoToXYI(7,14);
                                     cout << "Максимальный объем файла, который может передать программа более 1ГБ, я проверял, реально передала!\n" << endl;
+                                    GoToXYI(7,15);
+                                    cout << "Доступные клавиши для навигации по программе: ESC, UP, DOWN, ENTER.\n" << endl;
                                     _getch();
                                     system("CLS");
                                 }
@@ -351,6 +391,7 @@ int main()
                         if (!errorDisplayed)
                         {
                             GoToXYI(50,11);
+                            //Выводим ошибку 404 о том, что связь с сервером не установлена
                             cerr << "Ошибка при попытке подключения к серверу: " << WSAGetLastError() + 404 << endl;
                             GoToXYI(50,12);
                             cout << "Попробуйте подключиться позднее!" << endl;
@@ -372,12 +413,16 @@ int main()
                 }
                 else
                 {
+                    //Раньше я подразумевал, что пользователь сможет попасть на первый экран меню
+                    //Но когда продолжил писать меню понял, что реализовать такое Я не могу
+                    //Даже, наверное, просто не представляю
                     cout << "Вы уже подключены!\n";
                     Sleep(1500);
                 }
                 if(!connected)
                 {
                     GoToXYI(52, 14);
+                    //Проверка на дальнейшее использование программы
                     char answer;
                     cout << "Вы хотите продолжить использование программы? (Д/Н): ";
                     ConsoleCursorVisible(true, 10);
@@ -409,6 +454,7 @@ int main()
             }
             else if (active_menu == 2)
             {
+                //Тиииихий выход
                 exit(0);
             }
             break;
