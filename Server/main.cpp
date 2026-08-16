@@ -1,5 +1,9 @@
 #include <iostream>
+#include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
+#include <algorithm>
+#include <cstring>
 #include <conio.h>
 #include <vector>
 #include <fstream>
@@ -9,6 +13,29 @@
 #define DEFAULT_PORT "27015"
 
 using namespace std;
+
+// Задает фиксированный размер консольного окна сервера.
+void SetFixedConsoleWindow(short width, short height)
+{
+    HANDLE consoleOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    SMALL_RECT targetWindow = {0, 0, static_cast<short>(width - 1), static_cast<short>(height - 1)};
+    SetConsoleWindowInfo(consoleOutput, TRUE, &targetWindow);
+
+    COORD bufferSize = {width, height};
+    SetConsoleScreenBufferSize(consoleOutput, bufferSize);
+    SetConsoleWindowInfo(consoleOutput, TRUE, &targetWindow);
+
+    HWND consoleWindow = GetConsoleWindow();
+    if (consoleWindow != NULL)
+    {
+        LONG style = GetWindowLongA(consoleWindow, GWL_STYLE);
+        style &= ~(WS_SIZEBOX | WS_MAXIMIZEBOX);
+        SetWindowLongA(consoleWindow, GWL_STYLE, style);
+        SetWindowPos(consoleWindow, NULL, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+}
 
 //Массив сокетов для подключенных клиентов
 SOCKET Connections[100];
@@ -24,7 +51,7 @@ struct User
     string username;
 };
 
-//Динамический массив для хранения активных пользователей
+// Список активных пользователей.
 vector<User> activeUsers;
 
 //Генерируем уникальный идентификатор пользователя
@@ -50,15 +77,38 @@ void SaveActiveUsersToFile()
 
     outFile.close();
 }
-//Функция для того чтобы писать о том, что файл не найден
-void Prikol()
+// Создает файл со списком активных пользователей, если его еще нет.
+void EnsureActiveUsersFileExists()
 {
-    ifstream inFile("active_users.txt");
-    if (!inFile)
+    ofstream file("active_users.txt", ios::app);
+    if (!file)
     {
-        cerr << "Файл активных пользователей не найден." << endl;
-        return;
+        cerr << "Не удалось открыть active_users.txt." << endl;
     }
+}
+
+string GetApplicationDirectory()
+{
+    char path[MAX_PATH] = {0};
+    if (GetModuleFileNameA(NULL, path, MAX_PATH) == 0)
+    {
+        return ".\\";
+    }
+
+    string appPath(path);
+    size_t pos = appPath.find_last_of("\\/");
+    if (pos == string::npos)
+    {
+        return ".\\";
+    }
+    return appPath.substr(0, pos + 1);
+}
+
+string GetSavedFilesDirectory()
+{
+    string directory = GetApplicationDirectory() + "SavedFiles\\";
+    CreateDirectoryA(directory.c_str(), NULL);
+    return directory;
 }
 //Функция для формирования списка активных пользователей
 void SendActiveUsersToConnectedClients(SOCKET clientSocket)
@@ -106,40 +156,42 @@ void ReceiveFileFromClient(SOCKET clientSocket)
         cerr << "Ошибка при получении количества частей файла." << endl;
         return;
     }
-    //Получаем путь
-    TCHAR szPath[MAX_PATH];
-    if (GetModuleFileName(NULL, szPath, MAX_PATH) == 0)
-    {
-        cerr << "Ошибка при получении пути к исполняемому файлу." << endl;
-        return;
-    }
-    string appDirectory = szPath;
-    size_t pos = appDirectory.find_last_of("\\/");
-    if (pos != string::npos)
-    {
-        appDirectory = appDirectory.substr(0, pos);
-    }
-    //Создаём директорию
-    string saveDirectory = appDirectory + "\\SavedFiles\\";
-    CreateDirectory(saveDirectory.c_str(), NULL);
-    string filePath = saveDirectory + filename;
+    // Все серверные файлы хранятся рядом с исполняемым файлом в SavedFiles.
+    string filePath = GetSavedFilesDirectory() + filename;
     ofstream file(filePath, ios::binary);
     if (!file.is_open())
     {
         cerr << "Ошибка при сохранении файла на сервере: " << filename << endl;
         return;
     }
+    int totalBytesReceived = 0;
     for (int i = 0; i < num_chunks; ++i)
     {
         char chunk_buffer[DEFAULT_BUFLEN] = {0};
-        int bytesReceived = recv(clientSocket, chunk_buffer, DEFAULT_BUFLEN, 0);
-        if (bytesReceived <= 0)
+        int expectedChunkSize = std::min(DEFAULT_BUFLEN, file_size - totalBytesReceived);
+        int chunkBytesReceived = 0;
+
+        while (chunkBytesReceived < expectedChunkSize)
         {
-            cerr << "Ошибка при приеме данных от клиента или клиент отключен." << endl;
-            file.close();
-            return;
+            int bytesReceived = recv(
+                clientSocket,
+                chunk_buffer + chunkBytesReceived,
+                expectedChunkSize - chunkBytesReceived,
+                0
+            );
+
+            if (bytesReceived <= 0)
+            {
+                cerr << "Ошибка при приеме данных от клиента или клиент отключен." << endl;
+                file.close();
+                return;
+            }
+
+            chunkBytesReceived += bytesReceived;
         }
-        file.write(chunk_buffer, bytesReceived);
+
+        file.write(chunk_buffer, chunkBytesReceived);
+        totalBytesReceived += chunkBytesReceived;
     }
 
     file.close();
@@ -150,18 +202,15 @@ void ReceiveFileFromClient(SOCKET clientSocket)
 void SendFileListToClient(SOCKET clientSocket)
 {
     string file_list;
-    string directory = "SavedFiles\\";
+    string directory = GetSavedFilesDirectory();
     //Храним данные о найденных файлах
     WIN32_FIND_DATA findFileData;
     HANDLE hFind = FindFirstFile((directory + "*").c_str(), &findFileData);
 
     if (hFind == INVALID_HANDLE_VALUE)
     {
-        //Выводим ошибку об отсутствии директории SavedFiles
-        cerr << "Не удалось получить список файлов в директории." << endl;
-        //Отправляем ошибку пользователю
-        string error_message = "Директории на сервере не существует. Необходимо создать директорию.";
-        send(clientSocket, error_message.c_str(), error_message.size(), 0);
+        string empty_message = "Серверное хранилище пусто.";
+        send(clientSocket, empty_message.c_str(), empty_message.size(), 0);
         return;
     }
     //Цикл do while нужен для поиска файлов в директории
@@ -182,12 +231,20 @@ void SendFileListToClient(SOCKET clientSocket)
 void SendFileToClient(SOCKET clientSocket, const string& filename)
 {
     //Формируем путьт к файлу
-    string file_path = "SavedFiles\\" + filename;
+    string file_path = GetSavedFilesDirectory() + filename;
     //Читаем файл в бинарном формате
     ifstream file(file_path, ios::binary);
-    //Определяем размер файла
+    if (!file.is_open())
+    {
+        int file_size = -1;
+        send(clientSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
+        cerr << "Запрошенный файл не найден: " << filename << endl;
+        return;
+    }
+
+    // Определяем размер файла.
     file.seekg(0, ios::end);
-    int file_size = file.tellg();
+    int file_size = static_cast<int>(file.tellg());
     file.seekg(0, ios::beg);
 
     send(clientSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
@@ -321,27 +378,63 @@ int main()
     setlocale(LC_ALL, "Russian");
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
-    SetConsoleTitleA("ADMIN PANEL");
+    SetConsoleTitleA("FILE TRANSFER SERVER");
+    SetFixedConsoleWindow(100, 30);
 
     WSADATA wsaData;
     struct addrinfo *result = NULL;
     struct addrinfo hints;
 
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+    {
+        cerr << "Не удалось инициализировать Winsock." << endl;
+        return 1;
+    }
+
     ZeroMemory(&hints, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_flags = AI_PASSIVE;
 
-    getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
+    if (getaddrinfo(NULL, DEFAULT_PORT, &hints, &result) != 0)
+    {
+        cerr << "Не удалось получить адрес для сервера." << endl;
+        WSACleanup();
+        return 1;
+    }
+
     ServerSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    bind(ServerSocket, result->ai_addr, (int)result->ai_addrlen);
+    if (ServerSocket == INVALID_SOCKET)
+    {
+        cerr << "Не удалось создать серверный сокет." << endl;
+        freeaddrinfo(result);
+        WSACleanup();
+        return 1;
+    }
+
+    if (bind(ServerSocket, result->ai_addr, (int)result->ai_addrlen) == SOCKET_ERROR)
+    {
+        cerr << "Не удалось привязать сервер к порту " << DEFAULT_PORT
+             << ". Код Winsock: " << WSAGetLastError() << endl;
+        freeaddrinfo(result);
+        closesocket(ServerSocket);
+        WSACleanup();
+        return 1;
+    }
     freeaddrinfo(result);
 
-    listen(ServerSocket, SOMAXCONN);
+    if (listen(ServerSocket, SOMAXCONN) == SOCKET_ERROR)
+    {
+        cerr << "Не удалось перевести сервер в режим прослушивания." << endl;
+        closesocket(ServerSocket);
+        WSACleanup();
+        return 1;
+    }
 
-    Prikol();
+    cout << "Сервер запущен. TCP-порт: " << DEFAULT_PORT << endl;
+
+    EnsureActiveUsersFileExists();
 
     thread inputThread(UserInputListener);
     inputThread.detach();

@@ -1,9 +1,14 @@
 #include <iostream>
+#include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
+#include <algorithm>
+#include <cstring>
 #include <conio.h>
 #include <string>
 #include <fstream>
-#include <filesystem>
+#include <vector>
+#include <sstream>
 
 #define IP_ADDRESS "localhost"
 #define DEFAULT_PORT "27015"
@@ -16,9 +21,7 @@
 
 using namespace std;
 
-//Урок для создания этого меню
-//https://www.youtube.com/watch?v=AxzaXJMBfi4
-//Поучение дескриптора консоли для дальнейшей работы с меню
+// Дескриптор консоли используется для отображения меню.
 HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
 
 // Функция для перемещения курсора в консоли
@@ -37,14 +40,39 @@ void ConsoleCursorVisible(bool show, short size)
     SetConsoleCursorInfo(hStdOut, &structCursorInfo);
 }
 
+// Задает фиксированный размер консольного окна и запрещает изменение его размера.
+void SetFixedConsoleWindow(short width, short height)
+{
+    HANDLE consoleOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    SMALL_RECT targetWindow = {0, 0, static_cast<short>(width - 1), static_cast<short>(height - 1)};
+    SetConsoleWindowInfo(consoleOutput, TRUE, &targetWindow);
+
+    COORD bufferSize = {width, height};
+    SetConsoleScreenBufferSize(consoleOutput, bufferSize);
+    SetConsoleWindowInfo(consoleOutput, TRUE, &targetWindow);
+
+    HWND consoleWindow = GetConsoleWindow();
+    if (consoleWindow != NULL)
+    {
+        LONG style = GetWindowLongA(consoleWindow, GWL_STYLE);
+        style &= ~(WS_SIZEBOX | WS_MAXIMIZEBOX);
+        SetWindowLongA(consoleWindow, GWL_STYLE, style);
+        SetWindowPos(consoleWindow, NULL, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+}
+
 int main()
 {
     setlocale(LC_ALL, "Russian");
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
 
-    SetConsoleTitleA("USER CLIENT");
+    SetConsoleTitleA("FILE TRANSFER CLIENT");
+    SetFixedConsoleWindow(120, 30);
     system("CLS");
+
     ConsoleCursorVisible(false, 100);
     string Menu[] = { "Подключиться к серверу", "Не подключаться к серверу", "Выход" };
     string UserMenu[] = { "Информация об активных пользователях", "Отправить файл на сервер", "Статус серверного хранилища", "Помощь", "Выход" };
@@ -65,8 +93,14 @@ int main()
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
-    hints.ai_flags = AI_PASSIVE;
-    getaddrinfo(IP_ADDRESS, DEFAULT_PORT, &hints, &result);
+    hints.ai_flags = 0;
+
+    if (getaddrinfo(IP_ADDRESS, DEFAULT_PORT, &hints, &result) != 0)
+    {
+        cerr << "Не удалось определить адрес сервера." << endl;
+        WSACleanup();
+        return 1;
+    }
 
     while (true)
     {
@@ -115,7 +149,7 @@ int main()
                     {
                         GoToXYI(x,y);
                         cout << "Вы были успешно подключены!" << endl;
-                        connected = true; //Флаг подлючения, до которого никогда никто не дойдёт
+                        connected = true;
                         Sleep(1500);
                         system("CLS");
                         GoToXYI(30,y);
@@ -185,7 +219,7 @@ int main()
                                 {
                                     system("CLS");
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-                                    //Честно без этого листа код программы дальше не воспроизводился
+                                    // Обновляем состояние соединения перед отправкой файла.
                                     const char *request_list = "list";
                                     send(ConnectSocket, request_list, strlen(request_list), 0);
                                     char recvbuf[DEFAULT_BUFLEN];
@@ -242,14 +276,42 @@ int main()
                                     int num_chunks = (file_size + chunk_size - 1) / chunk_size;
                                     send(ConnectSocket, reinterpret_cast<char*>(&num_chunks), sizeof(int), 0);
 
-                                    for (int i = 0; i < num_chunks; ++i)
+                                    bool transferFailed = false;
+                                    for (int i = 0; i < num_chunks && !transferFailed; ++i)
                                     {
                                         int current_chunk_size = std::min(chunk_size, file_size - i * chunk_size);
-                                        send(ConnectSocket, file_buffer + i * chunk_size, current_chunk_size, 0);
+                                        int sent = 0;
+
+                                        while (sent < current_chunk_size)
+                                        {
+                                            int bytesSent = send(
+                                                ConnectSocket,
+                                                file_buffer + i * chunk_size + sent,
+                                                current_chunk_size - sent,
+                                                0
+                                            );
+
+                                            if (bytesSent == SOCKET_ERROR)
+                                            {
+                                                transferFailed = true;
+                                                break;
+                                            }
+                                            sent += bytesSent;
+                                        }
                                     }
 
-                                    //Удаляем динамическую память выделенную на передачу файла
+                                    // Удаляем динамическую память, выделенную под файл.
                                     delete[] file_buffer;
+
+                                    if (transferFailed)
+                                    {
+                                        system("CLS");
+                                        GoToXYI(35, 14);
+                                        cerr << "Ошибка при передаче файла. Код Winsock: " << WSAGetLastError() << endl;
+                                        _getch();
+                                        system("CLS");
+                                        continue;
+                                    }
 
                                     system("CLS");
                                     GoToXYI(35, 14);
@@ -276,105 +338,159 @@ int main()
                                 else if (active_menu == 2)
                                 {
                                     system("CLS");
-                                    GoToXYI(50, 12);
+                                    GoToXYI(45, 10);
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
                                     cout << "Запрос списка файлов на сервере...\n";
-                                    Sleep(1500);
+                                    Sleep(800);
                                     system("CLS");
-                                    //Запрашиваем список файлов доступных на сервере
+
                                     const char *request_list_files = "list_files";
                                     send(ConnectSocket, request_list_files, strlen(request_list_files), 0);
 
-                                    char recvbuf[DEFAULT_BUFLEN];
+                                    char recvbuf[DEFAULT_BUFLEN + 1] = {0};
                                     int bytesReceived = recv(ConnectSocket, recvbuf, DEFAULT_BUFLEN, 0);
                                     if (bytesReceived > 0)
                                     {
                                         recvbuf[bytesReceived] = '\0';
                                         string receivedMessage(recvbuf);
-                                        //Вывод ошибки о том, что директории на сервере не существует
-                                        if (receivedMessage.find("Директории на сервере не существует") != string::npos)
+
+                                        if (receivedMessage.find("Серверное хранилище пусто") != string::npos)
                                         {
                                             GoToXYI(43, 12);
-                                            cerr << receivedMessage << endl;
-                                            Sleep(2000);
+                                            cout << receivedMessage << endl;
+                                            _getch();
                                             system("CLS");
                                             active_menu = 0;
                                             continue;
                                         }
 
-                                        cout << "Список файлов на сервере:\n" << recvbuf << endl;
-
-                                        string fileName;
-                                        GoToXYI(48, 13);
-                                        cout << "Введите имя файла для загрузки: ";
-                                        ConsoleCursorVisible(true, 10);
-                                        getline(cin, fileName);
-                                        ConsoleCursorVisible(false, 100);
-                                        //Выводим сообщение олб ошибке, если поле пустое
-                                        if (fileName.empty())
+                                        vector<string> files;
+                                        string line;
+                                        stringstream fileListStream(receivedMessage);
+                                        while (getline(fileListStream, line))
                                         {
-                                            GoToXYI(48, 14);
-                                            cerr << "Имя файла не может быть пустым. Пожалуйста, попробуйте снова." << endl;
+                                            if (!line.empty() && line.back() == '\r')
+                                                line.pop_back();
+                                            if (!line.empty())
+                                                files.push_back(line);
+                                        }
+
+                                        if (files.empty())
+                                        {
+                                            cout << "На сервере нет файлов." << endl;
+                                            _getch();
+                                            system("CLS");
                                             continue;
                                         }
-                                        //А как проверять на неправильно введеные имена я не знаю
-                                        //Если ввести имя файла неправильно, то сервер отправит несуществующий файл пользователю
-                                        //Который будет называться как его вписал пользователь
-                                        //После этого действия пользовательская программа *заморозится*
+
+                                        cout << "Файлы на сервере:\n\n";
+                                        for (size_t i = 0; i < files.size(); ++i)
+                                            cout << i + 1 << ". " << files[i] << endl;
+
+                                        cout << "\nВведите номер файла для загрузки: ";
+                                        ConsoleCursorVisible(true, 10);
+
+                                        string choiceText;
+                                        getline(cin, choiceText);
+                                        ConsoleCursorVisible(false, 100);
+
+                                        int choice = 0;
+                                        try
+                                        {
+                                            size_t parsed = 0;
+                                            choice = stoi(choiceText, &parsed);
+                                            if (parsed != choiceText.size())
+                                                choice = 0;
+                                        }
+                                        catch (...)
+                                        {
+                                            choice = 0;
+                                        }
+
+                                        if (choice < 1 || choice > static_cast<int>(files.size()))
+                                        {
+                                            cout << "Неверный номер файла." << endl;
+                                            _getch();
+                                            system("CLS");
+                                            continue;
+                                        }
+
+                                        string fileName = files[choice - 1];
+
                                         const char *request_download_file = "download_file";
                                         send(ConnectSocket, request_download_file, strlen(request_download_file), 0);
-                                        //Отправляем информацию о файле, которую хотим получить
-                                        int filename_size = fileName.size();
+
+                                        int filename_size = static_cast<int>(fileName.size());
                                         send(ConnectSocket, reinterpret_cast<char*>(&filename_size), sizeof(int), 0);
                                         send(ConnectSocket, fileName.c_str(), filename_size, 0);
+
                                         int file_size;
                                         bytesReceived = recv(ConnectSocket, reinterpret_cast<char*>(&file_size), sizeof(int), 0);
+                                        if (bytesReceived <= 0 || file_size < 0)
+                                        {
+                                            cout << "Файл не найден на сервере или соединение было прервано." << endl;
+                                            _getch();
+                                            system("CLS");
+                                            continue;
+                                        }
+
                                         ofstream outFile(fileName, ios::binary);
                                         if (!outFile)
                                         {
                                             cerr << "Ошибка при открытии файла для записи." << endl;
-                                            return 1;
+                                            _getch();
+                                            system("CLS");
+                                            continue;
                                         }
-                                        //Получаем файл
+
                                         char file_buffer[DEFAULT_BUFLEN];
                                         int total_bytes_received = 0;
                                         while (total_bytes_received < file_size)
                                         {
-                                            bytesReceived = recv(ConnectSocket, file_buffer, DEFAULT_BUFLEN, 0);
+                                            int bytesToReceive = min(DEFAULT_BUFLEN, file_size - total_bytes_received);
+                                            bytesReceived = recv(ConnectSocket, file_buffer, bytesToReceive, 0);
                                             if (bytesReceived <= 0)
                                             {
                                                 cerr << "Ошибка при получении данных от сервера." << endl;
                                                 break;
                                             }
+
                                             outFile.write(file_buffer, bytesReceived);
                                             total_bytes_received += bytesReceived;
                                         }
                                         outFile.close();
+
+                                        if (total_bytes_received == file_size)
+                                            cout << "Файл \"" << fileName << "\" успешно загружен." << endl;
+                                        else
+                                            cout << "Файл загружен не полностью." << endl;
+
+                                        _getch();
                                         system("CLS");
-                                        GoToXYI(48, 13);
-                                        cout << "Файл успешно загружен." << endl;
-                                        Sleep(2000);
+                                    }
+                                    else
+                                    {
+                                        cerr << "Не удалось получить список файлов с сервера." << endl;
+                                        _getch();
                                         system("CLS");
                                     }
                                 }
                                 else if (active_menu == 3)
                                 {
-                                    //Блок, приветствующий пользователя
-                                    //По-идее он должен быть раньше?
-                                    //Потому что когда пользователь впервые заходит в программу, то он не знает о том, что навцигация производится на стрелочки!
-                                    //Странное ли это решение?
                                     system("CLS");
                                     SetConsoleTextAttribute(hStdOut, FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-                                    GoToXYI(7,11);
-                                    cout << "Привет! Тебя приветствует программа, которая может отправлять файлы на сервер и скачивать их оттуда!\n" << endl;
-                                    GoToXYI(7,12);
-                                    cout << "НО сначала же надо серверу эти файлы как-то получить? Да, именно ТЫ первый кто отправит на сервер первый файл.\n" << endl;
-                                    GoToXYI(7,13);
-                                    cout << "Форматы файлов, которые может передать пргограмма: pdf,docx,txt,png и другие! Кроме, rar и zip...\n" << endl;
-                                    GoToXYI(7,14);
-                                    cout << "Максимальный объем файла, который может передать программа более 1ГБ, я проверял, реально передала!\n" << endl;
-                                    GoToXYI(7,15);
-                                    cout << "Доступные клавиши для навигации по программе: ESC, UP, DOWN, ENTER.\n" << endl;
+
+                                    GoToXYI(7, 10);
+                                    cout << "Перед началом работы должен быть запущен сервер." << endl;
+                                    GoToXYI(7, 12);
+                                    cout << "Управление: стрелки UP/DOWN - выбор пункта, ENTER - подтвердить, ESC - выход." << endl;
+                                    GoToXYI(7, 14);
+                                    cout << "При отправке файла указывайте полный путь к нему, например: C:\\Users\\User\\Desktop\\file.txt" << endl;
+                                    GoToXYI(7, 16);
+                                    cout << "При скачивании выберите нужный файл из списка по его номеру." << endl;
+                                    GoToXYI(7, 18);
+                                    cout << "Для возврата в меню нажмите любую клавишу." << endl;
+
                                     _getch();
                                     system("CLS");
                                 }
@@ -388,11 +504,12 @@ int main()
                     }
                     else
                     {
+                        closesocket(ConnectSocket);
+                        ConnectSocket = INVALID_SOCKET;
                         if (!errorDisplayed)
                         {
                             GoToXYI(50,11);
-                            //Выводим ошибку 404 о том, что связь с сервером не установлена
-                            cerr << "Ошибка при попытке подключения к серверу: " << WSAGetLastError() + 404 << endl;
+                            cerr << "Ошибка при попытке подключения к серверу. Код Winsock: " << WSAGetLastError() << endl;
                             GoToXYI(50,12);
                             cout << "Попробуйте подключиться позднее!" << endl;
                             errorDisplayed = true;
@@ -454,7 +571,6 @@ int main()
             }
             else if (active_menu == 2)
             {
-                //Тиииихий выход
                 exit(0);
             }
             break;
